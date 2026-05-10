@@ -4,5 +4,5 @@ compatibility_date = "2024-03-01"
 
 [[kv_namespaces]]
 binding = "USERS"
-id = "BOT_DATA"
+id = "USERS"
 
