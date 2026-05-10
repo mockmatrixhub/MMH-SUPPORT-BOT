@@ -4,5 +4,5 @@ compatibility_date = "2024-03-01"
 
 [[kv_namespaces]]
 binding = "USERS"
-id = "USERS"
+id = "42ee8b7cd524405fab5d5479bc4e4478"
 
