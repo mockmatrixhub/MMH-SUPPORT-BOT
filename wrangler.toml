@@ -1,0 +1,8 @@
+name = "mmh-support-bot"
+main = "index.js"
+compatibility_date = "2024-03-01"
+
+[[kv_namespaces]]
+binding = "USERS"
+id = "PASTE_YOUR_KV_NAMESPACE_ID_HERE"
+
