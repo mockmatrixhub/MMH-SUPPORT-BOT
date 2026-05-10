@@ -15,7 +15,6 @@ export default {
     const chatId = msg.chat.id.toString();
     const text = msg.text || "";
     
-    // Config: ADMIN_LIST should be a comma-separated string of IDs in Secrets
     const ownerId = env.OWNER_ID;
     const adminList = env.ADMIN_LIST ? env.ADMIN_LIST.split(",") : [];
     const staff = [ownerId, ...adminList];
@@ -88,7 +87,6 @@ export default {
         });
         const fwdData = await fwd.json();
         if (fwdData.ok) {
-          // Links specific message in specific admin's chat to the sender
           await env.USERS.put(`msg_${staffId}_${fwdData.result.message_id}`, chatId, { expirationTtl: 172800 });
         }
       }
@@ -100,14 +98,12 @@ export default {
       const targetId = await env.USERS.get(`msg_${chatId}_${msg.reply_to_message.message_id}`);
       
       if (targetId) {
-        // Send reply to User
         await sendTelegram("copyMessage", {
           chat_id: targetId,
           from_chat_id: chatId,
           message_id: msg.message_id
         });
 
-        // Sync reply to Other Staff (shows who replied to whom)
         for (const staffId of staff) {
           if (staffId === chatId) continue;
           await sendTelegram("forwardMessage", {
@@ -149,12 +145,11 @@ async function handleCallback(cb, env) {
 
     let successCount = 0;
     let blockedCount = 0;
-    const batchSize = 20; // Crucial: Keeps it under the 50 subrequest limit
+    const batchSize = 20;
 
     for (let i = 0; i < users.length; i++) {
-      // Pause every 20 users to reset the subrequest limit
       if (i > 0 && i % batchSize === 0) {
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 300));
       }
 
       const userKey = users[i];
@@ -170,8 +165,8 @@ async function handleCallback(cb, env) {
         const resJson = await res.json();
         if (!resJson.ok) {
           if (resJson.error_code === 403) {
-            userBlocked = true; 
-            break; // Stop trying to send the REST of the queue to this specific blocked user
+            userBlocked = true;
+            break; 
           }
         }
       }
@@ -187,17 +182,17 @@ async function handleCallback(cb, env) {
     await env.USERS.delete(`state_${chatId}`);
     return await sendTelegram("sendMessage", { 
       chat_id: chatId, 
-      text: `✅ <b>Broadcast Finished</b>\n\n📦 Messages: ${queue.length}\n👤 Successful: ${successCount}\n🚫 Blocked/Failed: ${blockedCount}`,
+      text: `✅ <b>Broadcast Finished</b>\n\n📦 Messages per user: ${queue.length}\n👤 Successful: ${successCount}\n🚫 Blocked/Failed: ${blockedCount}`,
       parse_mode: "HTML"
     });
   }
 }
 
 async function sendTelegram(method, body) {
-  const url = `https://api.telegram.org/bot${BOT_TOKEN}/${method}`;
-  return await fetch(url, {
+  return await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 }
+
