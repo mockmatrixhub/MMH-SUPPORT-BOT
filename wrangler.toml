@@ -1,4 +1,4 @@
-name = "mmh-support-bot"
+name = "mock-matrix-hub"
 main = "index.js"
 compatibility_date = "2024-03-01"
 
