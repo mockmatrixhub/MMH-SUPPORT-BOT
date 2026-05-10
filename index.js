@@ -15,6 +15,7 @@ export default {
     const chatId = msg.chat.id.toString();
     const text = msg.text || "";
     
+    // Config: ADMIN_LIST should be a comma-separated string of IDs in Secrets
     const ownerId = env.OWNER_ID;
     const adminList = env.ADMIN_LIST ? env.ADMIN_LIST.split(",") : [];
     const staff = [ownerId, ...adminList];
@@ -87,6 +88,7 @@ export default {
         });
         const fwdData = await fwd.json();
         if (fwdData.ok) {
+          // Links specific message in specific admin's chat to the sender
           await env.USERS.put(`msg_${staffId}_${fwdData.result.message_id}`, chatId, { expirationTtl: 172800 });
         }
       }
@@ -98,12 +100,14 @@ export default {
       const targetId = await env.USERS.get(`msg_${chatId}_${msg.reply_to_message.message_id}`);
       
       if (targetId) {
+        // Send reply to User
         await sendTelegram("copyMessage", {
           chat_id: targetId,
           from_chat_id: chatId,
           message_id: msg.message_id
         });
 
+        // Sync reply to Other Staff (shows who replied to whom)
         for (const staffId of staff) {
           if (staffId === chatId) continue;
           await sendTelegram("forwardMessage", {
@@ -122,7 +126,6 @@ export default {
 
 async function handleCallback(cb, env) {
   const chatId = cb.message.chat.id.toString();
-  
   if (cb.data === "bc_no") {
     await env.USERS.delete(`queue_${chatId}`);
     await env.USERS.delete(`state_${chatId}`);
@@ -134,57 +137,36 @@ async function handleCallback(cb, env) {
     if (!queueData) return new Response("OK");
     const queue = JSON.parse(queueData);
     
-    const userList = await env.USERS.list();
-    const users = userList.keys.filter(k => !k.name.includes("_"));
+    await sendTelegram("editMessageText", { chat_id: chatId, message_id: cb.message.message_id, text: "🚀 Broadcasting..." });
     
-    await sendTelegram("editMessageText", { 
-      chat_id: chatId, 
-      message_id: cb.message.message_id, 
-      text: `🚀 Sending ${queue.length} message(s) to ${users.length} users...` 
-    });
+    const userList = await env.USERS.list();
+    let userCount = 0;
+    const users = userList.keys.filter(k => !k.name.includes("_"));
+    const sentIds = new Set(); 
 
-    let successCount = 0;
-    let blockedCount = 0;
-    const batchSize = 20;
-
-    for (let i = 0; i < users.length; i++) {
-      if (i > 0 && i % batchSize === 0) {
-        await new Promise(r => setTimeout(r, 300));
-      }
-
-      const userKey = users[i];
-      let userBlocked = false;
-
+    for (const userKey of users) {
+      if (sentIds.has(userKey.name)) continue;
+      let success = true;
       for (const bcMsg of queue) {
-        const res = await sendTelegram("copyMessage", { 
-          chat_id: userKey.name, 
-          from_chat_id: chatId, 
-          message_id: bcMsg.message_id 
-        });
-        
+        const res = await sendTelegram("copyMessage", { chat_id: userKey.name, from_chat_id: chatId, message_id: bcMsg.message_id });
         const resJson = await res.json();
         if (!resJson.ok) {
           if (resJson.error_code === 403) {
-            userBlocked = true;
-            break; 
+            await env.USERS.delete(userKey.name);
+            success = false;
+            break;
           }
         }
       }
-      
-      if (userBlocked) {
-        blockedCount++;
-      } else {
-        successCount++;
+      if (success) {
+        userCount++;
+        sentIds.add(userKey.name);
       }
     }
     
     await env.USERS.delete(`queue_${chatId}`);
     await env.USERS.delete(`state_${chatId}`);
-    return await sendTelegram("sendMessage", { 
-      chat_id: chatId, 
-      text: `✅ <b>Broadcast Finished</b>\n\n📦 Messages per user: ${queue.length}\n👤 Successful: ${successCount}\n🚫 Blocked/Failed: ${blockedCount}`,
-      parse_mode: "HTML"
-    });
+    return await sendTelegram("sendMessage", { chat_id: chatId, text: `✅ Broadcast Complete!\nMessages: ${queue.length}\nUnique Users: ${userCount}` });
   }
 }
 
@@ -194,5 +176,5 @@ async function sendTelegram(method, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-}
-
+        }
+               
