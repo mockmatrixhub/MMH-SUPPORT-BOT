@@ -64,7 +64,7 @@ export default {
           parse_mode: "HTML",
           reply_markup: {
             inline_keyboard: [[
-              { text: "✅ Yes, Send", callback_data: `bc_yes` },
+              { text: "✅ Yes, Start", callback_data: `bc_yes_0_0_0` },
               { text: "❌ No, Cancel", callback_data: `bc_no` }
             ]]
           }
@@ -88,7 +88,6 @@ export default {
         });
         const fwdData = await fwd.json();
         if (fwdData.ok) {
-          // Links specific message in specific admin's chat to the sender
           await env.USERS.put(`msg_${staffId}_${fwdData.result.message_id}`, chatId, { expirationTtl: 172800 });
         }
       }
@@ -98,28 +97,15 @@ export default {
     // --- 5. REPLYING & SYNCING (Admin -> User & Other Staff) ---
     if (isAdmin && msg.reply_to_message) {
       const targetId = await env.USERS.get(`msg_${chatId}_${msg.reply_to_message.message_id}`);
-      
       if (targetId) {
-        // Send reply to User
-        await sendTelegram("copyMessage", {
-          chat_id: targetId,
-          from_chat_id: chatId,
-          message_id: msg.message_id
-        });
-
-        // Sync reply to Other Staff (shows who replied to whom)
+        await sendTelegram("copyMessage", { chat_id: targetId, from_chat_id: chatId, message_id: msg.message_id });
         for (const staffId of staff) {
           if (staffId === chatId) continue;
-          await sendTelegram("forwardMessage", {
-            chat_id: staffId,
-            from_chat_id: chatId,
-            message_id: msg.message_id
-          });
+          await sendTelegram("forwardMessage", { chat_id: staffId, from_chat_id: chatId, message_id: msg.message_id });
         }
       }
       return new Response("OK");
     }
-
     return new Response("OK");
   }
 };
@@ -133,32 +119,33 @@ async function handleCallback(cb, env) {
     return await sendTelegram("editMessageText", { chat_id: chatId, message_id: cb.message.message_id, text: "❌ Broadcast Cancelled." });
   }
 
-  if (cb.data === "bc_yes") {
+  if (cb.data.startsWith("bc_yes_")) {
+    const parts = cb.data.split("_");
+    let startIndex = parseInt(parts[2]);
+    let successTotal = parseInt(parts[3]);
+    let blockedTotal = parseInt(parts[4]);
+
     const queueData = await env.USERS.get(`queue_${chatId}`);
     if (!queueData) return new Response("OK");
     const queue = JSON.parse(queueData);
     
     const userList = await env.USERS.list();
-    const users = userList.keys.filter(k => !k.name.includes("_"));
+    const allUsers = userList.keys.filter(k => !k.name.includes("_"));
     
+    const batchSize = 40;
+    const endIndex = Math.min(startIndex + batchSize, allUsers.length);
+    const currentBatch = allUsers.slice(startIndex, endIndex);
+
     await sendTelegram("editMessageText", { 
       chat_id: chatId, 
       message_id: cb.message.message_id, 
-      text: `🚀 Sending ${queue.length} message(s) to ${users.length} users...` 
+      text: `🚀 <b>Broadcasting...</b>\nProcessing: ${startIndex + 1} to ${endIndex} of ${allUsers.length}`,
+      parse_mode: "HTML"
     });
 
-    let successCount = 0;
-    let blockedCount = 0;
-    const batchSize = 20; // Keeps subrequests low to avoid Worker crash
-
-    for (let i = 0; i < users.length; i++) {
-      // Small pause to reset Cloudflare's subrequest internal counter
-      if (i > 0 && i % batchSize === 0) {
-        await new Promise(r => setTimeout(r, 300));
-      }
-
-      const userKey = users[i];
+    for (const userKey of currentBatch) {
       let userBlocked = false;
+      await new Promise(r => setTimeout(r, 100)); // 100ms Timeout per user for stability
 
       for (const bcMsg of queue) {
         const res = await sendTelegram("copyMessage", { 
@@ -166,35 +153,37 @@ async function handleCallback(cb, env) {
           from_chat_id: chatId, 
           message_id: bcMsg.message_id 
         });
-        
         const resJson = await res.json();
-        if (!resJson.ok) {
-          if (resJson.error_code === 403) {
-            userBlocked = true;
-            // We keep them in KV but mark them as blocked for this broadcast
-            break; 
-          }
+        if (!resJson.ok && resJson.error_code === 403) {
+          userBlocked = true;
+          break; 
         }
       }
-      
-      if (userBlocked) {
-        blockedCount++;
-      } else {
-        successCount++;
-      }
+      if (userBlocked) blockedTotal++; else successTotal++;
     }
-    
-    await env.USERS.delete(`queue_${chatId}`);
-    await env.USERS.delete(`state_${chatId}`);
-    return await sendTelegram("sendMessage", { 
-      chat_id: chatId, 
-      text: `✅ <b>Broadcast Finished</b>\n\n📦 Messages per user: ${queue.length}\n👤 Successful: ${successCount}\n🚫 Blocked/Failed: ${blockedCount}`,
-      parse_mode: "HTML"
-    });
+
+    if (endIndex < allUsers.length) {
+      return await sendTelegram("editMessageText", {
+        chat_id: chatId,
+        message_id: cb.message.message_id,
+        text: `📊 <b>Batch Status</b>\nProgress: ${endIndex}/${allUsers.length}\n\n✅ Sent: ${successTotal}\n🚫 Blocked: ${blockedTotal}`,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [[{ text: "➡️ Send to Remaining", callback_data: `bc_yes_${endIndex}_${successTotal}_${blockedTotal}` }]]
+        }
+      });
+    } else {
+      await env.USERS.delete(`queue_${chatId}`);
+      await env.USERS.delete(`state_${chatId}`);
+      return await sendTelegram("editMessageText", { 
+        chat_id: chatId, 
+        message_id: cb.message.message_id, 
+        text: `✅ <b>Broadcast Complete!</b>\n\n👤 Unique Users: ${allUsers.length}\n✅ Successful: ${successTotal}\n🚫 Blocked: ${blockedTotal}`,
+        parse_mode: "HTML"
+      });
+    }
   }
 }
-
-
 
 async function sendTelegram(method, body) {
   return await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
@@ -202,5 +191,4 @@ async function sendTelegram(method, body) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-        }
-               
+}
