@@ -94,22 +94,14 @@ export default {
       return new Response("OK");
     }
 
-        // --- 5. REPLYING & SYNCING (Admin -> User & Other Staff) ---
+    // --- 5. REPLYING & SYNCING (Admin -> User & Other Staff) ---
     if (isAdmin && msg.reply_to_message) {
       const targetId = await env.USERS.get(`msg_${chatId}_${msg.reply_to_message.message_id}`);
       if (targetId) {
         await sendTelegram("copyMessage", { chat_id: targetId, from_chat_id: chatId, message_id: msg.message_id });
         for (const staffId of staff) {
-          if (staffId === chatId) continue; 
-          const staffKeys = await env.USERS.list({ prefix: `msg_${staffId}_` });
-          let linkedMsgId = null;
-          for (const key of staffKeys.keys) {
-            const storedUser = await env.USERS.get(key.name);
-            if (storedUser === targetId) { linkedMsgId = key.name.split("_")[2]; }
-          }
-          await sendTelegram("copyMessage", {
-            chat_id: staffId, from_chat_id: chatId, message_id: msg.message_id, reply_to_message_id: linkedMsgId
-          });
+          if (staffId === chatId) continue;
+          await sendTelegram("forwardMessage", { chat_id: staffId, from_chat_id: chatId, message_id: msg.message_id });
         }
       }
       return new Response("OK");
