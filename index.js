@@ -93,7 +93,8 @@ export default {
       }
       return new Response("OK");
     }
-    // --- 5. REPLYING & SYNCING (Admin -> User & Other Staff) ---
+
+        // --- 5. REPLYING & SYNCING (Admin -> User & Other Staff) ---
     if (isAdmin && msg.reply_to_message) {
       const targetId = await env.USERS.get(`msg_${chatId}_${msg.reply_to_message.message_id}`);
       
@@ -105,11 +106,11 @@ export default {
           message_id: msg.message_id
         });
 
-        // B. Sync this reply to all other Staff (Owner + Admins)
+        // B. Sync this reply to ALL other Staff with a QUOTE link
         for (const staffId of staff) {
-          if (staffId === chatId) continue; // Skip the admin who is replying
+          if (staffId === chatId) continue; 
 
-          // Look for the specific forwarded message ID in this staff member's chat
+          // Find the specific forwarded message for this user in this staff member's chat
           const staffKeys = await env.USERS.list({ prefix: `msg_${staffId}_` });
           let linkedMsgId = null;
 
@@ -117,22 +118,21 @@ export default {
             const storedUser = await env.USERS.get(key.name);
             if (storedUser === targetId) {
               linkedMsgId = key.name.split("_")[2];
-              // Note: We don't 'break' so we link to the most recent message from that user
+              // We keep the loop going to find the MOST RECENT message from that user
             }
           }
 
-          // Send the sync message as a Quoted Reply to the original user query
+          // Send the sync message as a Quoted Reply
           await sendTelegram("copyMessage", {
             chat_id: staffId,
             from_chat_id: chatId,
             message_id: msg.message_id,
-            reply_to_message_id: linkedMsgId // This creates the "Quote" link
+            reply_to_message_id: linkedMsgId // THIS LINE CREATES THE QUOTE BUBBLE
           });
         }
       }
       return new Response("OK");
     }
-    
 
 async function handleCallback(cb, env) {
   const chatId = cb.message.chat.id.toString();
