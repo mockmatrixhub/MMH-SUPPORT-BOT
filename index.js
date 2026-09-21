@@ -1,4 +1,4 @@
-const BOT_TOKEN = "8678528147:AAF9EfX9xDbNl-O9crQBoeWqvChzj7UYfM0";
+const BOT_TOKEN = "8678528147:AAGVHk8K4usB3iGNszgb0p3qEY4_w38WrXw";
 
 export default {
   async fetch(request, env) {
